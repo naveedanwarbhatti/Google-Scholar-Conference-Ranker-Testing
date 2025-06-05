@@ -118,40 +118,41 @@ let scholarUrlToDblpInfoMap = new Map<string, { venue: string | null; pageCount:
 // --- END: DBLP Constants & Globals ---
 
 
-/** --------  STREAM-XML memo cache  -------- */
+/** --------  Stream metadata memo cache (via SPARQL)  -------- */
 const streamMetaCache = new Map<
-  string,                                              // streamId e.g. "buildsys"
-  Promise<{ acronym: string|null; title: string|null } | null>
+  string,
+  Promise<{ acronym: string | null; title: string | null } | null>
 >();
 
-/** --------  REPLACE the old fetchDblpStreamMetadata  -------- */
 async function fetchDblpStreamMetadata(
-  streamXmlUrl: string
+  streamUri: string
 ): Promise<{ acronym: string | null; title: string | null } | null> {
-
-  // extract "buildsys" from https://dblp.org/streams/conf/buildsys.xml
-  const streamId = streamXmlUrl.match(/\/conf\/([^/]+)\.xml$/)?.[1];
-  if (!streamId) return null;           // malformed url – fall back to previous behaviour
+  const streamId = streamUri.substring(streamUri.lastIndexOf('/') + 1);
 
   if (!streamMetaCache.has(streamId)) {
-    streamMetaCache.set(streamId, (async () => {
-      try {
-        const resp = await fetch(streamXmlUrl);
-        if (!resp.ok) return null;
+    const query = `PREFIX dblp:<https://dblp.org/rdf/schema#>\nPREFIX rdfs:<http://www.w3.org/2000/01/rdf-schema#>\nSELECT ?title ?indexPage WHERE { OPTIONAL{ <${streamUri}> dblp:primaryStreamTitle ?title } OPTIONAL{ <${streamUri}> rdfs:label ?title } OPTIONAL{ <${streamUri}> dblp:indexPage ?indexPage } } LIMIT 1`;
 
-        const xml   = await resp.text();
-        const doc   = new DOMParser().parseFromString(xml, "application/xml");
-        if (doc.querySelector("parsererror")) return null;
-
-        const conf  = doc.querySelector("dblpstreams > conf");
-        return conf
-          ? {
-              acronym: conf.querySelector("acronym")?.textContent?.trim() ?? null,
-              title  : conf.querySelector("title")?.textContent?.trim()   ?? null,
-            }
-          : null;
-      } catch { return null; }
-    })());
+    streamMetaCache.set(
+      streamId,
+      executeSparqlQuery(query)
+        .then((data: any) => {
+          const b = data.results?.bindings?.[0];
+          if (!b) return null;
+          const title = b.title ? b.title.value : null;
+          const indexPage = b.indexPage ? b.indexPage.value : null;
+          let acronym: string | null = null;
+          if (indexPage) {
+            const m = indexPage.match(/\/db\/(?:conf|journals)\/([^/]+)/);
+            if (m) acronym = m[1];
+          }
+          if (!acronym && title) {
+            const m = title.match(/\(([^()]+)\)\s*$/);
+            if (m) acronym = m[1];
+          }
+          return { acronym, title };
+        })
+        .catch(() => null)
+    );
   }
 
   return streamMetaCache.get(streamId)!;
@@ -1421,9 +1422,7 @@ async function fetchPublicationsFromDblp(
 
       if (b.stream) {
         const streamUri: string = b.stream.value;
-        const streamId = streamUri.substring(streamUri.lastIndexOf('/') + 1);
-        const streamXmlUrl = `https://dblp.org/streams/conf/${streamId}.xml`;
-        const streamMeta = await fetchDblpStreamMetadata(streamXmlUrl);
+        const streamMeta = await fetchDblpStreamMetadata(streamUri);
         if (streamMeta) {
           acronym = streamMeta.acronym ?? null;
           venue_full = streamMeta.title ?? null;
