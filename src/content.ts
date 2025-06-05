@@ -1203,6 +1203,8 @@ function sanitizeAuthorName(name: string): string {
         /[,\s]+professor$/i,
     ];
     for (const p of patterns) cleaned = cleaned.replace(p, "");
+    cleaned = cleaned.replace(/\s*\([^)]*\)\s*/g, " ");
+    cleaned = cleaned.replace(/\s+/g, " ");
     return cleaned.trim();
 }
 
