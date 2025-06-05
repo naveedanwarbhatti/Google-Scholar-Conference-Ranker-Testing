@@ -1,8 +1,5 @@
 // scholar-ranker/content.ts
 
-import { fetchPublicationInfo } from "./utils/sparql";
-
-
 interface CoreEntry {
   title: string;
   acronym: string;
@@ -1733,29 +1730,6 @@ async function main() {
         titlesAlreadyProcessedSet: Set<string>, 
         dblpKeysUsedSet: Set<string>
     ): Promise<{ rank: string, rowElement: HTMLElement, titleText: string, url: string }> => {
-	
-	
-	// ──────────────────────────────────────────────────────────────
-//  NEW – ask the dblp SPARQL endpoint first. If we get a rank
-//  (A*, A, B, or C), we can skip the heavy XML + heuristic work.
-// ──────────────────────────────────────────────────────────────
-try {
-    const sparqlInfo = await fetchPublicationInfo(pubInfo.titleText, pubInfo.url);
-    if (["A*", "A", "B", "C"].includes(sparqlInfo.rank)) {
-        // book-keeping identical to the old path
-        titlesAlreadyProcessedSet.add(pubInfo.titleText);
-        return {
-            rank: sparqlInfo.rank,
-            rowElement: pubInfo.rowElement,
-            titleText: pubInfo.titleText,
-            url: pubInfo.url
-        };
-    }
-} catch (e) {
-    console.warn("SPARQL lookup failed – falling back to XML path:", e);
-}
-// ──────────────────────────────────────────────────────────────
-
       
       // Check 1: Exact Scholar title already processed and received a valid rank.
       if (titlesAlreadyProcessedSet.has(pubInfo.titleText)) {

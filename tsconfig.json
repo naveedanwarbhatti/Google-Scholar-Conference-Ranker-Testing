@@ -6,9 +6,7 @@
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true,
-	"resolveJsonModule": true,
-    "esModuleInterop": true 
+    "forceConsistentCasingInFileNames": true
   },
   "include": ["*.ts"] // Which files to compile
 }

@@ -63,7 +63,7 @@
         "https://scholar.google.ua/*",
         "https://scholar.google.us/*"
       ],
-      "js": ["src/content.js"],
+      "js": ["content.js"],
       "run_at": "document_idle"
     }
   ],
@@ -122,8 +122,7 @@
     "https://scholar.google.sk/*",
     "https://scholar.google.ua/*",
     "https://scholar.google.us/*",
-    "https://dblp.org/*",  
-	"https://sparql.dblp.org/*"
+    "https://dblp.org/*"  
   ],
 
   "web_accessible_resources": [

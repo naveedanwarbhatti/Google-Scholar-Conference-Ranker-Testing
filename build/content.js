@@ -1,7 +1,5 @@
 "use strict";
 // scholar-ranker/content.ts
-Object.defineProperty(exports, "__esModule", { value: true });
-const sparql_1 = require("./utils/sparql");
 /** array → map */
 function packRanks(arr) {
     const obj = {};
@@ -1729,27 +1727,6 @@ async function main() {
         const processPublication = async (pubInfo, 
         // Passed sets for de-duplication:
         titlesAlreadyProcessedSet, dblpKeysUsedSet) => {
-            // ──────────────────────────────────────────────────────────────
-            //  NEW – ask the dblp SPARQL endpoint first. If we get a rank
-            //  (A*, A, B, or C), we can skip the heavy XML + heuristic work.
-            // ──────────────────────────────────────────────────────────────
-            try {
-                const sparqlInfo = await (0, sparql_1.fetchPublicationInfo)(pubInfo.titleText, pubInfo.url);
-                if (["A*", "A", "B", "C"].includes(sparqlInfo.rank)) {
-                    // book-keeping identical to the old path
-                    titlesAlreadyProcessedSet.add(pubInfo.titleText);
-                    return {
-                        rank: sparqlInfo.rank,
-                        rowElement: pubInfo.rowElement,
-                        titleText: pubInfo.titleText,
-                        url: pubInfo.url
-                    };
-                }
-            }
-            catch (e) {
-                console.warn("SPARQL lookup failed – falling back to XML path:", e);
-            }
-            // ──────────────────────────────────────────────────────────────
             // Check 1: Exact Scholar title already processed and received a valid rank.
             if (titlesAlreadyProcessedSet.has(pubInfo.titleText)) {
                 console.log(`GSR INFO: Scholar title (exact) "${pubInfo.titleText.substring(0, 50)}..." already ranked. Marking as N/A.`);
