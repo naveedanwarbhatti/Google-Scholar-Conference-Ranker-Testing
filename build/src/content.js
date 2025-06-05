@@ -1,5 +1,7 @@
 "use strict";
 // scholar-ranker/content.ts
+Object.defineProperty(exports, "__esModule", { value: true });
+const sparql_1 = require("./utils/sparql");
 /** array → map */
 function packRanks(arr) {
     const obj = {};
@@ -34,42 +36,44 @@ let activeCachedPublicationRanks = null;
 let publicationTableObserver = null;
 let rankMapForObserver = null; // Maps URL to Rank
 // --- START: DBLP Constants & Globals ---
-// Use the public DBLP SPARQL endpoint instead of the legacy HTTP APIs
-// See: https://blog.dblp.org/2024/09/09/introducing-our-public-sparql-query-service/
-const DBLP_SPARQL_ENDPOINT = "https://sparql.dblp.org/sparql";
+const DBLP_API_AUTHOR_SEARCH_URL = "https://dblp.org/search/author/api";
+const DBLP_API_PERSON_PUBS_URL_PREFIX = "https://dblp.org/pid/";
 const DBLP_HEURISTIC_MIN_OVERLAP_COUNT = 2;
 const DBLP_HEURISTIC_SCORE_THRESHOLD = 2.5;
 let dblpPubsForCurrentUser = [];
 let scholarUrlToDblpVenueMap = new Map();
 let scholarUrlToDblpInfoMap = new Map();
 // --- END: DBLP Constants & Globals ---
-/** --------  Stream metadata memo cache (via SPARQL)  -------- */
+/** --------  STREAM-XML memo cache  -------- */
 const streamMetaCache = new Map();
-async function fetchDblpStreamMetadata(streamUri) {
-    const streamId = streamUri.substring(streamUri.lastIndexOf('/') + 1);
+/** --------  REPLACE the old fetchDblpStreamMetadata  -------- */
+async function fetchDblpStreamMetadata(streamXmlUrl) {
+    // extract "buildsys" from https://dblp.org/streams/conf/buildsys.xml
+    const streamId = streamXmlUrl.match(/\/conf\/([^/]+)\.xml$/)?.[1];
+    if (!streamId)
+        return null; // malformed url – fall back to previous behaviour
     if (!streamMetaCache.has(streamId)) {
-        const query = `PREFIX dblp:<https://dblp.org/rdf/schema#>\nPREFIX rdfs:<http://www.w3.org/2000/01/rdf-schema#>\nSELECT ?title ?indexPage WHERE { OPTIONAL{ <${streamUri}> dblp:primaryStreamTitle ?title } OPTIONAL{ <${streamUri}> rdfs:label ?title } OPTIONAL{ <${streamUri}> dblp:indexPage ?indexPage } } LIMIT 1`;
-        streamMetaCache.set(streamId, executeSparqlQuery(query)
-            .then((data) => {
-            const b = data.results?.bindings?.[0];
-            if (!b)
+        streamMetaCache.set(streamId, (async () => {
+            try {
+                const resp = await fetch(streamXmlUrl);
+                if (!resp.ok)
+                    return null;
+                const xml = await resp.text();
+                const doc = new DOMParser().parseFromString(xml, "application/xml");
+                if (doc.querySelector("parsererror"))
+                    return null;
+                const conf = doc.querySelector("dblpstreams > conf");
+                return conf
+                    ? {
+                        acronym: conf.querySelector("acronym")?.textContent?.trim() ?? null,
+                        title: conf.querySelector("title")?.textContent?.trim() ?? null,
+                    }
+                    : null;
+            }
+            catch {
                 return null;
-            const title = b.title ? b.title.value : null;
-            const indexPage = b.indexPage ? b.indexPage.value : null;
-            let acronym = null;
-            if (indexPage) {
-                const m = indexPage.match(/\/db\/(?:conf|journals)\/([^/]+)/);
-                if (m)
-                    acronym = m[1];
             }
-            if (!acronym && title) {
-                const m = title.match(/\(([^()]+)\)\s*$/);
-                if (m)
-                    acronym = m[1];
-            }
-            return { acronym, title };
-        })
-            .catch(() => null));
+        })());
     }
     return streamMetaCache.get(streamId);
 }
@@ -454,15 +458,14 @@ function stripOrgPrefixes(text) {
  */
 function findRankForVenue(venueKey, coreData, fullVenueTitle = undefined) {
     if (!venueKey || !venueKey.trim())
-        return { rank: "N/A", entry: null };
+        return "N/A";
     const keyLower = venueKey.toLowerCase().trim();
     /* ---------- 1. exact-acronym match ---------- */
     const acronymMatches = coreData.filter(e => e.acronym && e.acronym.toLowerCase() === keyLower);
     /* 1-a  single hit → done */
     if (acronymMatches.length === 1) {
-        const entry = acronymMatches[0];
-        const rank = entry.rank;
-        return { rank: VALID_RANKS.includes(rank) ? rank : "N/A", entry };
+        const rank = acronymMatches[0].rank;
+        return VALID_RANKS.includes(rank) ? rank : "N/A";
     }
     /* 1-b  ambiguous acronym → log & try title disambiguation */
     if (acronymMatches.length > 1) {
@@ -487,19 +490,19 @@ function findRankForVenue(venueKey, coreData, fullVenueTitle = undefined) {
                 bestScore >= 0.85 &&
                 VALID_RANKS.includes(bestEntry.rank)) {
                 console.log(`[Rank]   ► Disambiguated by title → "${bestEntry.title}" (${bestEntry.rank})`);
-                return { rank: bestEntry.rank, entry: bestEntry };
+                return bestEntry.rank;
             }
             console.log(`[Rank]   ► Title disambiguation failed (best score ${bestScore.toFixed(3)}). Returning N/A.`);
         }
         else {
             console.log(`[Rank]   ► No fullVenueTitle provided – cannot disambiguate. Returning N/A.`);
         }
-        return { rank: "N/A", entry: null }; // ← new behaviour
+        return "N/A"; // ← new behaviour
     }
     /* ---------- 2. substring containment (unchanged) ---------- */
     const gsCleaned = cleanTextForComparison(keyLower, true);
     if (!gsCleaned)
-        return { rank: "N/A", entry: null };
+        return "N/A";
     let bestSubRank = null;
     let longestLen = 0;
     for (const entry of coreData) {
@@ -513,7 +516,7 @@ function findRankForVenue(venueKey, coreData, fullVenueTitle = undefined) {
         }
     }
     if (bestSubRank)
-        return { rank: bestSubRank, entry: null };
+        return bestSubRank;
     /* ---------- 3. fuzzy JW (unchanged) ---------- */
     let bestFuzzy = 0;
     let fuzzyRank = null;
@@ -532,7 +535,7 @@ function findRankForVenue(venueKey, coreData, fullVenueTitle = undefined) {
                 break;
         }
     }
-    return { rank: fuzzyRank ?? "N/A", entry: null };
+    return fuzzyRank ?? "N/A";
 }
 function extractPotentialAcronymsFromText(scholarVenueName) {
     const acronyms = new Set();
@@ -1004,7 +1007,7 @@ function displaySummaryPanel(rankCounts, currentUserId, initialCachedPubRanks, c
         try {
             const coreDataForChecker = await loadCoreDataForFile(getCoreDataFileForYear(null));
             if (coreDataForChecker.length > 0) {
-                const { rank } = findRankForVenue(venueName, coreDataForChecker);
+                const rank = findRankForVenue(venueName, coreDataForChecker);
                 const badgeElement = createRankBadgeElement(rank);
                 if (badgeElement) {
                     rankDisplaySpan.appendChild(badgeElement);
@@ -1280,44 +1283,37 @@ function getScholarSamplePublications(count = 7) {
     }
     return samples;
 }
-function escapeForSparql(str) {
-    return str.replace(/['"\\]/g, match => '\\' + match);
-}
-async function executeSparqlQuery(query) {
-    const response = await fetch(DBLP_SPARQL_ENDPOINT, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/sparql-query',
-            'Accept': 'application/sparql-results+json'
-        },
-        body: query
-    });
-    if (!response.ok)
-        throw new Error(`SPARQL query failed: ${response.status} ${response.statusText}`);
-    return await response.json();
-}
 async function searchDblpForAuthor(authorName, statusElement) {
     const statusTextEl = statusElement?.querySelector('.gsr-status-text');
     if (statusTextEl)
         statusTextEl.textContent = `DBLP: Searching for "${authorName}"...`;
-    const escaped = escapeForSparql(authorName.toLowerCase());
-    const query = `PREFIX dblp:<https://dblp.org/rdf/schema#>\nPREFIX rdfs:<http://www.w3.org/2000/01/rdf-schema#>\nPREFIX rdf:<http://www.w3.org/1999/02/22-rdf-syntax-ns#>\nSELECT ?person ?name WHERE { ?person rdf:type dblp:Person . ?person rdfs:label ?name . FILTER(CONTAINS(LCASE(?name), '${escaped}')) } LIMIT 10`;
+    const url = new URL(DBLP_API_AUTHOR_SEARCH_URL);
+    url.searchParams.append('q', authorName);
+    url.searchParams.append('format', 'json');
+    url.searchParams.append('h', '10');
+    url.searchParams.append('c', '3'); // Request some completions (publications)
     try {
-        const data = await executeSparqlQuery(query);
-        const hits = (data.results?.bindings || []).map((b) => ({
-            info: { author: b.name.value, url: b.person.value }
-        }));
-        if (hits.length > 0 && statusTextEl) {
-            statusTextEl.textContent = `DBLP: Found ${hits.length} potential author(s). Analyzing...`;
+        const response = await fetch(url.toString());
+        if (!response.ok) {
+            console.warn(`DBLP: Author search failed for "${authorName}": ${response.statusText}`);
+            if (statusTextEl)
+                statusTextEl.textContent = `DBLP: Search failed (${response.status}).`;
+            return [];
         }
-        return hits;
+        const data = await response.json();
+        if (data.result?.hits?.hit) {
+            const hits = Array.isArray(data.result.hits.hit) ? data.result.hits.hit : [data.result.hits.hit];
+            if (statusTextEl)
+                statusTextEl.textContent = `DBLP: Found ${hits.length} potential author(s). Analyzing...`;
+            return hits;
+        }
     }
     catch (error) {
-        console.error("DBLP: SPARQL author search error:", error);
-        if (statusTextEl)
-            statusTextEl.textContent = `DBLP: Search failed`;
-        return [];
+        console.error("DBLP: Error during author search:", error);
     }
+    if (statusTextEl)
+        statusTextEl.textContent = `DBLP: No results or error for "${authorName}".`;
+    return [];
 }
 function extractPidFromDblpUrl(dblpAuthorUrl) {
     const matchPers = dblpAuthorUrl.match(/dblp\.org\/pers\/hd\/[a-z0-9]\/([^.]+)/i);
@@ -1437,42 +1433,80 @@ async function fetchPublicationsFromDblp(authorPidPath, statusElement) {
     if (statusTextEl) {
         statusTextEl.textContent = `DBLP: Fetching publications for PID ${authorPidPath}…`;
     }
-    const query = `PREFIX dblp:<https://dblp.org/rdf/schema#>\nSELECT ?publ ?title ?venue ?pages ?year ?stream WHERE {\n    ?publ dblp:authoredBy <https://dblp.org/pid/${authorPidPath}> .\n    ?publ dblp:title ?title .\n    OPTIONAL { { ?publ dblp:publishedIn ?venue } UNION { ?publ dblp:publishedInBook ?venue } }\n    OPTIONAL { ?publ dblp:pagination ?pages }\n    OPTIONAL { ?publ dblp:yearOfPublication ?year }\n    OPTIONAL { ?publ dblp:publishedInStream ?stream }\n  }`;
+    const xmlUrl = `${DBLP_API_PERSON_PUBS_URL_PREFIX}${authorPidPath}.xml`;
     const publications = [];
     try {
-        const data = await executeSparqlQuery(query);
-        for (const b of data.results?.bindings || []) {
-            const dblpKey = b.publ.value.replace('https://dblp.org/rec/', '');
-            const title = b.title.value;
-            const year = b.year ? b.year.value : null;
-            const pages = b.pages ? b.pages.value : null;
-            const rawVenue = b.venue ? b.venue.value : null;
-            let acronym = null;
-            let venue_full = null;
-            if (b.stream) {
-                const streamUri = b.stream.value;
-                const streamMeta = await fetchDblpStreamMetadata(streamUri);
-                if (streamMeta) {
-                    acronym = streamMeta.acronym ?? null;
-                    venue_full = streamMeta.title ?? null;
+        const response = await fetch(xmlUrl);
+        if (!response.ok) {
+            console.warn(`DBLP: Fetching publications XML failed for PID "${authorPidPath}": ${response.statusText} (${response.status})`);
+            if (statusTextEl)
+                statusTextEl.textContent = "DBLP: XML fetch failed.";
+            return [];
+        }
+        const xmlText = await response.text();
+        const parser = new DOMParser();
+        const xmlDoc = parser.parseFromString(xmlText, "application/xml");
+        if (xmlDoc.querySelector("parsererror")) {
+            console.error("DBLP: XML parse error for PID", authorPidPath);
+            if (statusTextEl)
+                statusTextEl.textContent = "DBLP: XML parse error.";
+            return [];
+        }
+        const items = Array.from(xmlDoc.querySelectorAll("dblpperson > r > *"));
+        for (const item of items) {
+            const dblpKey = item.getAttribute("key") || "";
+            if (!dblpKey)
+                continue; // safety
+            const title = (item.querySelector("title")?.textContent || "")
+                .replace(/\.$/, "");
+            if (!title)
+                continue;
+            const year = item.querySelector("year")?.textContent || null;
+            const pages = item.querySelector("pages")?.textContent || null;
+            /* ---------- 1. raw venue (booktitle / journal / …) ---------- */
+            const venueElements = ["booktitle", "journal", "series", "school"];
+            let rawVenue = null;
+            for (const tag of venueElements) {
+                const txt = item.querySelector(tag)?.textContent?.trim();
+                if (txt) {
+                    rawVenue = txt;
+                    break;
                 }
             }
+            /* ---------- 2. stream-derived metadata (optional) ---------- */
+            let acronym = null;
+            let venue_full = null;
+            const pubUrl = item.querySelector("url")?.textContent?.trim();
+            if (pubUrl) {
+                const streamMatch = pubUrl.match(/^db\/conf\/[^/]+\/([a-zA-Z][\w-]*?)(\d{4}.*)?\.html/);
+                if (streamMatch?.[1]) {
+                    const streamId = streamMatch[1];
+                    const streamXmlUrl = `https://dblp.org/streams/conf/${streamId}.xml`;
+                    const streamMeta = await fetchDblpStreamMetadata(streamXmlUrl);
+                    if (streamMeta) {
+                        acronym = streamMeta.acronym ?? null; // may still be null
+                        venue_full = streamMeta.title ?? null;
+                    }
+                }
+            }
+            /* ---------- 3. push entry ---------- */
             publications.push({
                 dblpKey,
                 title,
-                venue: rawVenue,
+                venue: rawVenue, // ← always “raw” venue
                 year,
                 pages,
-                venue_full,
-                acronym,
+                venue_full, // ← null if no valid stream
+                acronym // ← null if no valid stream
             });
         }
         if (statusTextEl) {
-            statusTextEl.textContent = `DBLP: Fetched ${publications.length} publications.`;
+            statusTextEl.textContent =
+                `DBLP: Fetched ${publications.length} publications.`;
         }
     }
     catch (err) {
-        console.error("DBLP: Error running SPARQL publications query:", err);
+        console.error("DBLP: Error fetching/parsing XML:", err);
         if (statusTextEl)
             statusTextEl.textContent = "DBLP: Error fetching pubs.";
     }
@@ -1550,11 +1584,7 @@ mapToFill, statusElement) {
             const cleanDblpTitle = cleanTextForComparison(dblpPub.title.toLowerCase());
             const titleSimilarity = jaroWinkler(cleanScholarTitle, cleanDblpTitle);
             // inside buildDblpInfoMap(), just before the `if (titleSimilarity > 0.90)` line
-            // console.log(
-            //   '[SIM]', titleSimilarity.toFixed(3),
-            //   '\n   GS :', scholarPub.titleText,
-            //   '\n   DBLP:', cleanDblpTitle
-            // );
+            console.log('[SIM]', titleSimilarity.toFixed(3), '\n   GS :', scholarPub.titleText, '\n   DBLP:', cleanDblpTitle);
             if (titleSimilarity > 0.90) { // Threshold for title match
                 let yearMatch = false;
                 if (scholarPub.yearFromProfile && dblpPub.year) {
@@ -1699,6 +1729,27 @@ async function main() {
         const processPublication = async (pubInfo, 
         // Passed sets for de-duplication:
         titlesAlreadyProcessedSet, dblpKeysUsedSet) => {
+            // ──────────────────────────────────────────────────────────────
+            //  NEW – ask the dblp SPARQL endpoint first. If we get a rank
+            //  (A*, A, B, or C), we can skip the heavy XML + heuristic work.
+            // ──────────────────────────────────────────────────────────────
+            try {
+                const sparqlInfo = await (0, sparql_1.fetchPublicationInfo)(pubInfo.titleText, pubInfo.url);
+                if (["A*", "A", "B", "C"].includes(sparqlInfo.rank)) {
+                    // book-keeping identical to the old path
+                    titlesAlreadyProcessedSet.add(pubInfo.titleText);
+                    return {
+                        rank: sparqlInfo.rank,
+                        rowElement: pubInfo.rowElement,
+                        titleText: pubInfo.titleText,
+                        url: pubInfo.url
+                    };
+                }
+            }
+            catch (e) {
+                console.warn("SPARQL lookup failed – falling back to XML path:", e);
+            }
+            // ──────────────────────────────────────────────────────────────
             // Check 1: Exact Scholar title already processed and received a valid rank.
             if (titlesAlreadyProcessedSet.has(pubInfo.titleText)) {
                 console.log(`GSR INFO: Scholar title (exact) "${pubInfo.titleText.substring(0, 50)}..." already ranked. Marking as N/A.`);
@@ -1773,11 +1824,8 @@ async function main() {
                             // If both dblpInfo.acronym and venueName are null/empty, venueForRankingApi will be null.
                             // findRankForVenue should handle null input gracefully (it typically returns "N/A").
                             const fullVenueTitleForRanking = dblpInfo.venue_full ?? null;
-                            const matchResult = findRankForVenue(venueForRankingApi || "", yearSpecificCoreData, fullVenueTitleForRanking);
-                            currentRank = matchResult.rank;
-                            if (matchResult.entry) {
-                                console.log(`[MAP] DBLP '${venueForRankingApi || venueName}' -> CORE '${matchResult.entry.title}' (${matchResult.entry.acronym}) = ${matchResult.entry.rank}`);
-                            }
+                            currentRank = findRankForVenue(venueForRankingApi || "", yearSpecificCoreData, fullVenueTitleForRanking // <-- new tie-breaker input
+                            );
                             // Use non-null assertion if findRankForVenue expects string, or adjust findRankForVenue
                             // Assuming findRankForVenue can handle null for its first param and returns "N/A"
                             // If findRankForVenue cannot handle null and expects a string, ensure venueForRankingApi is a string or ""

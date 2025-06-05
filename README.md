@@ -53,13 +53,6 @@ Google Scholar is great at collecting publications but **terrible at showing th
 
 This extension uses historical **CORE Conference Rankings** from the years **2023, 2021, 2020, 2018, 2017, and 2014**, courtesy of [**Australasian Computing Research and Education (CORE)**](https://www.linkedin.com/company/australasian-computing-research-and-education-core/). Please refer to the official [CORE portal](http://portal.core.edu.au/conf-ranks/) for the most authoritative data.
 
-### DBLP SPARQL Integration
-
-The extension now retrieves publication metadata via the public
-[DBLP SPARQL endpoint](https://sparql.dblp.org/sparql). Using SPARQL avoids
-HTML scraping and allows flexible queries like filtering by venue or year.
-It also provides richer citation data for future features.
-
 ## Contributing & Bug Reports (BETA)
 
 This extension is currently in BETA. Your feedback is invaluable!
