@@ -1406,7 +1406,7 @@ async function fetchPublicationsFromDblp(
     statusTextEl.textContent = `DBLP: Fetching publications for PID ${authorPidPath}…`;
   }
 
-  const query = `PREFIX dblp:<https://dblp.org/rdf/schema#>\nPREFIX rdfs:<http://www.w3.org/2000/01/rdf-schema#>\nSELECT ?publ ?title ?venue ?pages ?year ?stream WHERE { ?publ dblp:authoredBy <https://dblp.org/pid/${authorPidPath}> . ?publ dblp:title ?title . OPTIONAL{ ?publ dblp:publishedIn ?venueUri . ?venueUri rdfs:label ?venue } OPTIONAL{ ?publ dblp:pagination ?pages } OPTIONAL{ ?publ dblp:yearOfPublication ?year } OPTIONAL{ ?publ dblp:publishedInStream ?stream } }`;
+  const query = `PREFIX dblp:<https://dblp.org/rdf/schema#>\nSELECT ?publ ?title ?venue ?pages ?year ?stream WHERE {\n    ?publ dblp:authoredBy <https://dblp.org/pid/${authorPidPath}> .\n    ?publ dblp:title ?title .\n    OPTIONAL { { ?publ dblp:publishedIn ?venue } UNION { ?publ dblp:publishedInBook ?venue } }\n    OPTIONAL { ?publ dblp:pagination ?pages }\n    OPTIONAL { ?publ dblp:yearOfPublication ?year }\n    OPTIONAL { ?publ dblp:publishedInStream ?stream }\n  }`;
   const publications: DblpPublicationEntry[] = [];
 
   try {
