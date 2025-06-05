@@ -6,6 +6,11 @@ interface CoreEntry {
   rank: string;
 }
 
+interface CoreMatchResult {
+  rank: string;
+  entry: CoreEntry | null;
+}
+
 interface PublicationRankInfo {
     titleText: string; // Normalized title from the link element on the profile page
     rank:string;
@@ -118,40 +123,41 @@ let scholarUrlToDblpInfoMap = new Map<string, { venue: string | null; pageCount:
 // --- END: DBLP Constants & Globals ---
 
 
-/** --------  STREAM-XML memo cache  -------- */
+/** --------  Stream metadata memo cache (via SPARQL)  -------- */
 const streamMetaCache = new Map<
-  string,                                              // streamId e.g. "buildsys"
-  Promise<{ acronym: string|null; title: string|null } | null>
+  string,
+  Promise<{ acronym: string | null; title: string | null } | null>
 >();
 
-/** --------  REPLACE the old fetchDblpStreamMetadata  -------- */
 async function fetchDblpStreamMetadata(
-  streamXmlUrl: string
+  streamUri: string
 ): Promise<{ acronym: string | null; title: string | null } | null> {
-
-  // extract "buildsys" from https://dblp.org/streams/conf/buildsys.xml
-  const streamId = streamXmlUrl.match(/\/conf\/([^/]+)\.xml$/)?.[1];
-  if (!streamId) return null;           // malformed url – fall back to previous behaviour
+  const streamId = streamUri.substring(streamUri.lastIndexOf('/') + 1);
 
   if (!streamMetaCache.has(streamId)) {
-    streamMetaCache.set(streamId, (async () => {
-      try {
-        const resp = await fetch(streamXmlUrl);
-        if (!resp.ok) return null;
+    const query = `PREFIX dblp:<https://dblp.org/rdf/schema#>\nPREFIX rdfs:<http://www.w3.org/2000/01/rdf-schema#>\nSELECT ?title ?indexPage WHERE { OPTIONAL{ <${streamUri}> dblp:primaryStreamTitle ?title } OPTIONAL{ <${streamUri}> rdfs:label ?title } OPTIONAL{ <${streamUri}> dblp:indexPage ?indexPage } } LIMIT 1`;
 
-        const xml   = await resp.text();
-        const doc   = new DOMParser().parseFromString(xml, "application/xml");
-        if (doc.querySelector("parsererror")) return null;
-
-        const conf  = doc.querySelector("dblpstreams > conf");
-        return conf
-          ? {
-              acronym: conf.querySelector("acronym")?.textContent?.trim() ?? null,
-              title  : conf.querySelector("title")?.textContent?.trim()   ?? null,
-            }
-          : null;
-      } catch { return null; }
-    })());
+    streamMetaCache.set(
+      streamId,
+      executeSparqlQuery(query)
+        .then((data: any) => {
+          const b = data.results?.bindings?.[0];
+          if (!b) return null;
+          const title = b.title ? b.title.value : null;
+          const indexPage = b.indexPage ? b.indexPage.value : null;
+          let acronym: string | null = null;
+          if (indexPage) {
+            const m = indexPage.match(/\/db\/(?:conf|journals)\/([^/]+)/);
+            if (m) acronym = m[1];
+          }
+          if (!acronym && title) {
+            const m = title.match(/\(([^()]+)\)\s*$/);
+            if (m) acronym = m[1];
+          }
+          return { acronym, title };
+        })
+        .catch(() => null)
+    );
   }
 
   return streamMetaCache.get(streamId)!;
@@ -451,9 +457,9 @@ function findRankForVenue(
     venueKey: string | null,
     coreData: CoreEntry[],
     fullVenueTitle: string | null | undefined = undefined
-): string {
+): CoreMatchResult {
 
-    if (!venueKey || !venueKey.trim()) return "N/A";
+    if (!venueKey || !venueKey.trim()) return { rank: "N/A", entry: null };
     const keyLower = venueKey.toLowerCase().trim();
 
     /* ---------- 1. exact-acronym match ---------- */
@@ -463,8 +469,9 @@ function findRankForVenue(
 
     /* 1-a  single hit → done */
     if (acronymMatches.length === 1) {
-        const rank = acronymMatches[0].rank;
-        return VALID_RANKS.includes(rank) ? rank : "N/A";
+        const entry = acronymMatches[0];
+        const rank = entry.rank;
+        return { rank: VALID_RANKS.includes(rank) ? rank : "N/A", entry };
     }
 
     /* 1-b  ambiguous acronym → log & try title disambiguation */
@@ -504,7 +511,7 @@ function findRankForVenue(
                 console.log(
                     `[Rank]   ► Disambiguated by title → "${bestEntry.title}" (${bestEntry.rank})`
                 );
-                return bestEntry.rank;
+                return { rank: bestEntry.rank, entry: bestEntry };
             }
 
             console.log(
@@ -517,12 +524,12 @@ function findRankForVenue(
                 `[Rank]   ► No fullVenueTitle provided – cannot disambiguate. Returning N/A.`
             );
         }
-        return "N/A";              // ← new behaviour
+        return { rank: "N/A", entry: null };              // ← new behaviour
     }
 
     /* ---------- 2. substring containment (unchanged) ---------- */
     const gsCleaned = cleanTextForComparison(keyLower, true);
-    if (!gsCleaned) return "N/A";
+    if (!gsCleaned) return { rank: "N/A", entry: null };
 
     let bestSubRank: string | null = null;
     let longestLen  = 0;
@@ -536,7 +543,7 @@ function findRankForVenue(
             bestSubRank = VALID_RANKS.includes(entry.rank) ? entry.rank : null;
         }
     }
-    if (bestSubRank) return bestSubRank;
+    if (bestSubRank) return { rank: bestSubRank, entry: null };
 
     /* ---------- 3. fuzzy JW (unchanged) ---------- */
     let bestFuzzy = 0;
@@ -555,7 +562,7 @@ function findRankForVenue(
             if (score === 1) break;
         }
     }
-    return fuzzyRank ?? "N/A";
+    return { rank: fuzzyRank ?? "N/A", entry: null };
 }
 
 
@@ -943,7 +950,7 @@ function displaySummaryPanel(
         try {
             const coreDataForChecker = await loadCoreDataForFile(getCoreDataFileForYear(null));
             if (coreDataForChecker.length > 0) {
-                const rank = findRankForVenue(venueName, coreDataForChecker);
+                const { rank } = findRankForVenue(venueName, coreDataForChecker);
                 const badgeElement = createRankBadgeElement(rank);
                 if (badgeElement) { rankDisplaySpan.appendChild(badgeElement); }
                 else { rankDisplaySpan.textContent = '-'; rankDisplaySpan.style.color = '#999'; }
@@ -1405,7 +1412,7 @@ async function fetchPublicationsFromDblp(
     statusTextEl.textContent = `DBLP: Fetching publications for PID ${authorPidPath}…`;
   }
 
-  const query = `PREFIX dblp:<https://dblp.org/rdf/schema#>\nPREFIX rdfs:<http://www.w3.org/2000/01/rdf-schema#>\nSELECT ?publ ?title ?venue ?pages ?year ?stream WHERE { ?publ dblp:authoredBy <https://dblp.org/pid/${authorPidPath}> . ?publ dblp:title ?title . OPTIONAL{ ?publ dblp:publishedIn ?venueUri . ?venueUri rdfs:label ?venue } OPTIONAL{ ?publ dblp:pagination ?pages } OPTIONAL{ ?publ dblp:yearOfPublication ?year } OPTIONAL{ ?publ dblp:publishedInStream ?stream } }`;
+  const query = `PREFIX dblp:<https://dblp.org/rdf/schema#>\nSELECT ?publ ?title ?venue ?pages ?year ?stream WHERE {\n    ?publ dblp:authoredBy <https://dblp.org/pid/${authorPidPath}> .\n    ?publ dblp:title ?title .\n    OPTIONAL { { ?publ dblp:publishedIn ?venue } UNION { ?publ dblp:publishedInBook ?venue } }\n    OPTIONAL { ?publ dblp:pagination ?pages }\n    OPTIONAL { ?publ dblp:yearOfPublication ?year }\n    OPTIONAL { ?publ dblp:publishedInStream ?stream }\n  }`;
   const publications: DblpPublicationEntry[] = [];
 
   try {
@@ -1421,9 +1428,7 @@ async function fetchPublicationsFromDblp(
 
       if (b.stream) {
         const streamUri: string = b.stream.value;
-        const streamId = streamUri.substring(streamUri.lastIndexOf('/') + 1);
-        const streamXmlUrl = `https://dblp.org/streams/conf/${streamId}.xml`;
-        const streamMeta = await fetchDblpStreamMetadata(streamXmlUrl);
+        const streamMeta = await fetchDblpStreamMetadata(streamUri);
         if (streamMeta) {
           acronym = streamMeta.acronym ?? null;
           venue_full = streamMeta.title ?? null;
@@ -1539,12 +1544,12 @@ async function buildDblpInfoMap(
             const cleanDblpTitle = cleanTextForComparison(dblpPub.title.toLowerCase());
             const titleSimilarity = jaroWinkler(cleanScholarTitle, cleanDblpTitle);
 			
-			// inside buildDblpInfoMap(), just before the `if (titleSimilarity > 0.90)` line
-console.log(
-  '[SIM]', titleSimilarity.toFixed(3),
-  '\n   GS :', scholarPub.titleText,
-  '\n   DBLP:', cleanDblpTitle
-);
+                        // inside buildDblpInfoMap(), just before the `if (titleSimilarity > 0.90)` line
+// console.log(
+//   '[SIM]', titleSimilarity.toFixed(3),
+//   '\n   GS :', scholarPub.titleText,
+//   '\n   DBLP:', cleanDblpTitle
+// );
 
 
             if (titleSimilarity > 0.90) { // Threshold for title match
@@ -1783,11 +1788,17 @@ async function main() {
                     // findRankForVenue should handle null input gracefully (it typically returns "N/A").
                     
                     const fullVenueTitleForRanking = dblpInfo.venue_full ?? null;
-currentRank = findRankForVenue(
-    venueForRankingApi || "",
-    yearSpecificCoreData,
-    fullVenueTitleForRanking     // <-- new tie-breaker input
-);
+                    const matchResult = findRankForVenue(
+                        venueForRankingApi || "",
+                        yearSpecificCoreData,
+                        fullVenueTitleForRanking
+                    );
+                    currentRank = matchResult.rank;
+                    if (matchResult.entry) {
+                        console.log(
+                            `[MAP] DBLP '${venueForRankingApi || venueName}' -> CORE '${matchResult.entry.title}' (${matchResult.entry.acronym}) = ${matchResult.entry.rank}`
+                        );
+                    }
  // Use non-null assertion if findRankForVenue expects string, or adjust findRankForVenue
                                                                                             // Assuming findRankForVenue can handle null for its first param and returns "N/A"
                     // If findRankForVenue cannot handle null and expects a string, ensure venueForRankingApi is a string or ""
