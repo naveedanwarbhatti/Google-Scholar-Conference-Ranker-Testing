@@ -6,6 +6,11 @@ interface CoreEntry {
   rank: string;
 }
 
+interface CoreMatchResult {
+  rank: string;
+  entry: CoreEntry | null;
+}
+
 interface PublicationRankInfo {
     titleText: string; // Normalized title from the link element on the profile page
     rank:string;
@@ -452,9 +457,9 @@ function findRankForVenue(
     venueKey: string | null,
     coreData: CoreEntry[],
     fullVenueTitle: string | null | undefined = undefined
-): string {
+): CoreMatchResult {
 
-    if (!venueKey || !venueKey.trim()) return "N/A";
+    if (!venueKey || !venueKey.trim()) return { rank: "N/A", entry: null };
     const keyLower = venueKey.toLowerCase().trim();
 
     /* ---------- 1. exact-acronym match ---------- */
@@ -464,8 +469,9 @@ function findRankForVenue(
 
     /* 1-a  single hit → done */
     if (acronymMatches.length === 1) {
-        const rank = acronymMatches[0].rank;
-        return VALID_RANKS.includes(rank) ? rank : "N/A";
+        const entry = acronymMatches[0];
+        const rank = entry.rank;
+        return { rank: VALID_RANKS.includes(rank) ? rank : "N/A", entry };
     }
 
     /* 1-b  ambiguous acronym → log & try title disambiguation */
@@ -505,7 +511,7 @@ function findRankForVenue(
                 console.log(
                     `[Rank]   ► Disambiguated by title → "${bestEntry.title}" (${bestEntry.rank})`
                 );
-                return bestEntry.rank;
+                return { rank: bestEntry.rank, entry: bestEntry };
             }
 
             console.log(
@@ -518,12 +524,12 @@ function findRankForVenue(
                 `[Rank]   ► No fullVenueTitle provided – cannot disambiguate. Returning N/A.`
             );
         }
-        return "N/A";              // ← new behaviour
+        return { rank: "N/A", entry: null };              // ← new behaviour
     }
 
     /* ---------- 2. substring containment (unchanged) ---------- */
     const gsCleaned = cleanTextForComparison(keyLower, true);
-    if (!gsCleaned) return "N/A";
+    if (!gsCleaned) return { rank: "N/A", entry: null };
 
     let bestSubRank: string | null = null;
     let longestLen  = 0;
@@ -537,7 +543,7 @@ function findRankForVenue(
             bestSubRank = VALID_RANKS.includes(entry.rank) ? entry.rank : null;
         }
     }
-    if (bestSubRank) return bestSubRank;
+    if (bestSubRank) return { rank: bestSubRank, entry: null };
 
     /* ---------- 3. fuzzy JW (unchanged) ---------- */
     let bestFuzzy = 0;
@@ -556,7 +562,7 @@ function findRankForVenue(
             if (score === 1) break;
         }
     }
-    return fuzzyRank ?? "N/A";
+    return { rank: fuzzyRank ?? "N/A", entry: null };
 }
 
 
@@ -944,7 +950,7 @@ function displaySummaryPanel(
         try {
             const coreDataForChecker = await loadCoreDataForFile(getCoreDataFileForYear(null));
             if (coreDataForChecker.length > 0) {
-                const rank = findRankForVenue(venueName, coreDataForChecker);
+                const { rank } = findRankForVenue(venueName, coreDataForChecker);
                 const badgeElement = createRankBadgeElement(rank);
                 if (badgeElement) { rankDisplaySpan.appendChild(badgeElement); }
                 else { rankDisplaySpan.textContent = '-'; rankDisplaySpan.style.color = '#999'; }
@@ -1538,12 +1544,12 @@ async function buildDblpInfoMap(
             const cleanDblpTitle = cleanTextForComparison(dblpPub.title.toLowerCase());
             const titleSimilarity = jaroWinkler(cleanScholarTitle, cleanDblpTitle);
 			
-			// inside buildDblpInfoMap(), just before the `if (titleSimilarity > 0.90)` line
-console.log(
-  '[SIM]', titleSimilarity.toFixed(3),
-  '\n   GS :', scholarPub.titleText,
-  '\n   DBLP:', cleanDblpTitle
-);
+                        // inside buildDblpInfoMap(), just before the `if (titleSimilarity > 0.90)` line
+// console.log(
+//   '[SIM]', titleSimilarity.toFixed(3),
+//   '\n   GS :', scholarPub.titleText,
+//   '\n   DBLP:', cleanDblpTitle
+// );
 
 
             if (titleSimilarity > 0.90) { // Threshold for title match
@@ -1782,11 +1788,17 @@ async function main() {
                     // findRankForVenue should handle null input gracefully (it typically returns "N/A").
                     
                     const fullVenueTitleForRanking = dblpInfo.venue_full ?? null;
-currentRank = findRankForVenue(
-    venueForRankingApi || "",
-    yearSpecificCoreData,
-    fullVenueTitleForRanking     // <-- new tie-breaker input
-);
+                    const matchResult = findRankForVenue(
+                        venueForRankingApi || "",
+                        yearSpecificCoreData,
+                        fullVenueTitleForRanking
+                    );
+                    currentRank = matchResult.rank;
+                    if (matchResult.entry) {
+                        console.log(
+                            `[MAP] DBLP '${venueForRankingApi || venueName}' -> CORE '${matchResult.entry.title}' (${matchResult.entry.acronym}) = ${matchResult.entry.rank}`
+                        );
+                    }
  // Use non-null assertion if findRankForVenue expects string, or adjust findRankForVenue
                                                                                             // Assuming findRankForVenue can handle null for its first param and returns "N/A"
                     // If findRankForVenue cannot handle null and expects a string, ensure venueForRankingApi is a string or ""
