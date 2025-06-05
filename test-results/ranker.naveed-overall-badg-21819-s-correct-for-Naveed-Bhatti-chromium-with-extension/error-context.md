@@ -6,12 +6,12 @@
 # Error details
 
 ```
-Error: rank "A★"
+Error: rank "A"
 
 expect(received).toBe(expected) // Object.is equality
 
-Expected: 4
-Received: 0
+Expected: 3
+Received: 1
     at C:\Users\Naveed Bhatti\Documents\Google-Scholar-Conference-Ranker-Testing\tests\ranker.naveed.spec.ts:60:44
 ```
 
@@ -78,7 +78,7 @@ Received: 0
   58 |   // 7 — assert each rank bucket
   59 |   for (const [rank, want] of Object.entries(EXPECTED)) {
 > 60 |     expect(counts[rank], `rank "${rank}"`).toBe(want);
-     |                                            ^ Error: rank "A★"
+     |                                            ^ Error: rank "A"
   61 |   }
   62 | });
   63 |

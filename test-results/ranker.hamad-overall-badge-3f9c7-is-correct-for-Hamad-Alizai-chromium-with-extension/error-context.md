@@ -11,7 +11,7 @@ Error: rank "A★"
 expect(received).toBe(expected) // Object.is equality
 
 Expected: 9
-Received: 0
+Received: 10
     at C:\Users\Naveed Bhatti\Documents\Google-Scholar-Conference-Ranker-Testing\tests\ranker.hamad.spec.ts:60:44
 ```
 
