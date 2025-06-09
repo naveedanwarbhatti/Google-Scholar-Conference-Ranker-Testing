@@ -1,6 +1,4 @@
-
 export async function fetchSelfCitationStats(pid) {
-
     const endpoint = 'https://sparql.dblp.org/sparql';
     const totalQuery = `PREFIX cito: <http://purl.org/spar/cito/>\nPREFIX dc: <http://purl.org/dc/terms/>\nSELECT (COUNT(*) as ?count) WHERE { ?citation cito:hasCitedEntity ?work . ?work dc:creator <https://dblp.org/pid/${pid}> }`;
     const selfQuery = `PREFIX cito: <http://purl.org/spar/cito/>\nPREFIX dc: <http://purl.org/dc/terms/>\nSELECT (COUNT(*) as ?count) WHERE { ?citation cito:hasCitedEntity ?cited . ?citation cito:hasCitingEntity ?citing . ?cited dc:creator <https://dblp.org/pid/${pid}> . ?citing dc:creator <https://dblp.org/pid/${pid}> }`;

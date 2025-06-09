@@ -1,7 +1,5 @@
-
 // content.ts - Self-Citation Checker
 import { fetchSelfCitationStats } from './dblpSelfCitation';
-
 function sanitizeAuthorName(name) {
     let cleaned = name.trim();
     const patterns = [
@@ -66,9 +64,7 @@ async function main() {
         insertPanel('DBLP author not found');
         return;
     }
-
     const stats = await fetchSelfCitationStats(pid);
-
     const percent = (stats.rate * 100).toFixed(1);
     insertPanel(`Self-citation rate: ${percent}% (${stats.self}/${stats.total})`);
 }
