@@ -1,7 +1,5 @@
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
 // content.ts - Self-Citation Checker
-const dblpSelfCitation_1 = require("./dblpSelfCitation");
+import { fetchSelfCitationStats } from './dblpSelfCitation';
 function sanitizeAuthorName(name) {
     let cleaned = name.trim();
     const patterns = [
@@ -66,7 +64,7 @@ async function main() {
         insertPanel('DBLP author not found');
         return;
     }
-    const stats = await (0, dblpSelfCitation_1.fetchSelfCitationStats)(pid);
+    const stats = await fetchSelfCitationStats(pid);
     const percent = (stats.rate * 100).toFixed(1);
     insertPanel(`Self-citation rate: ${percent}% (${stats.self}/${stats.total})`);
 }
