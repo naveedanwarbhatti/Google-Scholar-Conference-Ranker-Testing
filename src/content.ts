@@ -1,5 +1,5 @@
 // content.ts - Self-Citation Checker
-import { fetchSelfCitationStats } from './dblpSelfCitation';
+import { fetchSelfCitationStats, SelfCitationStats } from './dblpSelfCitation';
 
 function sanitizeAuthorName(name: string): string {
   let cleaned = name.trim();
@@ -38,14 +38,50 @@ async function searchDblp(author: string): Promise<string | null> {
   }
 }
 
-function insertPanel(text: string) {
-  const panel = document.createElement('div');
+function getCachedStats(pid: string): SelfCitationStats | null {
+  const raw = localStorage.getItem(`self-citation-${pid}`);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as SelfCitationStats;
+  } catch {
+    return null;
+  }
+}
+
+function setCachedStats(pid: string, stats: SelfCitationStats) {
+  localStorage.setItem(`self-citation-${pid}`, JSON.stringify(stats));
+}
+
+async function loadStats(pid: string, force = false): Promise<SelfCitationStats> {
+  if (!force) {
+    const cached = getCachedStats(pid);
+    if (cached) return cached;
+  }
+  const stats = await fetchSelfCitationStats(pid);
+  setCachedStats(pid, stats);
+  return stats;
+}
+
+function insertPanel(text: string, onRefresh: () => void) {
+  let panel = document.getElementById('self-citation-panel') as HTMLDivElement | null;
+  if (panel) panel.remove();
+  panel = document.createElement('div');
   panel.id = 'self-citation-panel';
   panel.style.border = '1px solid #ccc';
   panel.style.padding = '6px';
   panel.style.marginBottom = '10px';
   panel.style.background = '#f7f7f7';
-  panel.textContent = text;
+
+  const span = document.createElement('span');
+  span.textContent = text;
+  const button = document.createElement('button');
+  button.textContent = 'Refresh';
+  button.style.marginLeft = '8px';
+  button.addEventListener('click', onRefresh);
+
+  panel.appendChild(span);
+  panel.appendChild(button);
+
   const container = document.querySelector('#gsc_prf');
   if (container) {
     container.prepend(panel);
@@ -61,12 +97,17 @@ async function main() {
   const cleanName = sanitizeAuthorName(rawName);
   const pid = await searchDblp(cleanName);
   if (!pid) {
-    insertPanel('DBLP author not found');
+    insertPanel('DBLP author not found', () => {});
     return;
   }
-  const stats = await fetchSelfCitationStats(pid);
-  const percent = (stats.rate * 100).toFixed(1);
-  insertPanel(`Self-citation rate: ${percent}% (${stats.self}/${stats.total})`);
+  async function display(force = false) {
+    insertPanel('Loading...', () => display(true));
+    const stats = await loadStats(pid!, force);
+    const percent = (stats.rate * 100).toFixed(1);
+    insertPanel(`Self-citation rate: ${percent}% (${stats.self}/${stats.total})`, () => display(true));
+  }
+
+  display();
 }
 
 main().catch(err => console.error('self-citation checker error', err));
