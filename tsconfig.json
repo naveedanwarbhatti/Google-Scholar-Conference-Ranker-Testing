@@ -1,7 +1,7 @@
 {
   "compilerOptions": {
     "target": "esnext", // Modern browsers support ES6
-    "module": "commonjs", // Or "esnext" if you prefer ES modules
+    "module": "esnext",
     "outDir": "./dist", // Output directory for compiled JS
     "strict": true,
     "esModuleInterop": true,
