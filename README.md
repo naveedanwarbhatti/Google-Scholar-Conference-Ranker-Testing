@@ -11,6 +11,7 @@ This lightweight Chrome extension looks up an author's DBLP profile and displays
 | Feature | Description |
 |---------|-------------|
 | 🔄 **Self-citation stats** | Shows the proportion of citations where the author cites themselves, using DBLP's SPARQL endpoint. |
+| 💾 **Caching** | Statistics are cached per author and can be refreshed using the provided button. |
 
 ## Quick Install
 
