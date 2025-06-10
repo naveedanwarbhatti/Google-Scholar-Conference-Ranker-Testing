@@ -128,8 +128,9 @@
     "https://sparql.dblp.org/*"
   ],
 
-"background": {
-    "service_worker": "dist/background.js"
+  "background": {
+    "service_worker": "dist/background.js",
+    "type": "module"
   },
 
   "icons": {
