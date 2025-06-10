@@ -1,39 +1,13 @@
 // background.ts
 
-// Simple Jaro-Winkler implementation (no external deps)
-export function jaroWinkler(a: string, b: string): number {
-  if (a === b) return 1;
-  const maxDist = Math.floor(Math.max(a.length, b.length) / 2) - 1;
-  const matchA: boolean[] = [];
-  const matchB: boolean[] = [];
-  let matches = 0;
-  for (let i = 0; i < a.length; i++) {
-    const start = Math.max(0, i - maxDist);
-    const end = Math.min(i + maxDist + 1, b.length);
-    for (let j = start; j < end; j++) {
-      if (!matchB[j] && a[i] === b[j]) {
-        matchA[i] = matchB[j] = true;
-        matches++;
-        break;
-      }
-    }
-  }
-  if (!matches) return 0;
-  let t = 0;
-  let k = 0;
-  for (let i = 0; i < a.length; i++) {
-    if (matchA[i]) {
-      while (!matchB[k]) k++;
-      if (a[i] !== b[k]) t++;
-      k++;
-    }
-  }
-  const m = matches;
-  const jaro = (m / a.length + m / b.length + (m - t / 2) / m) / 3;
-  let l = 0;
-  while (l < 4 && a[l] === b[l]) l++;
-  return jaro + l * 0.1 * (1 - jaro);
-}
+// Utility helpers shared with tests
+import {
+  jaroWinkler,
+  sanitizeAuthorName,
+  getScholarAuthorName,
+  getScholarSamplePublications,
+  extractPidFromDblpUrl,
+} from "./src/utils";
 
 // --- Type Definitions ---
 // Note: These are now read globally by the TS compiler, no imports needed.
@@ -60,22 +34,6 @@ interface DblpCandidate {
   pid: string;
 }
 
-function sanitizeAuthorName(name: string): string {
-  return name.toLowerCase().replace(/[^a-z0-9]/g, " ").replace(/\s+/g, " ").trim();
-}
-
-export function getScholarAuthorName(raw: string): string {
-  return sanitizeAuthorName(raw.split("(")[0]);
-}
-
-export function getScholarSamplePublications(titles: string[], limit = 5): string[] {
-  return titles.slice(0, limit).map(t => sanitizeAuthorName(t));
-}
-
-export function extractPidFromDblpUrl(url: string): string {
-  const m = url.match(/\/pid\/([^/]+\/[^/.]+)/);
-  return m ? m[1] : "";
-}
 
 export async function searchDblpForAuthor(name: string): Promise<DblpCandidate[]> {
   const resp = await fetch(`https://dblp.org/search/author/api?q=${encodeURIComponent(name)}&format=json`);
