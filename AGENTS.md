@@ -33,3 +33,4 @@ PWTEST_MODE=ci npm run e2e
 
 # Remove the compiled build directory
 npm run clean
+```
