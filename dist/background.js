@@ -8,62 +8,12 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
         step((generator = generator.apply(thisArg, _arguments || [])).next());
     });
 };
-// Simple Jaro-Winkler implementation (no external deps)
-export function jaroWinkler(a, b) {
-    if (a === b)
-        return 1;
-    const maxDist = Math.floor(Math.max(a.length, b.length) / 2) - 1;
-    const matchA = [];
-    const matchB = [];
-    let matches = 0;
-    for (let i = 0; i < a.length; i++) {
-        const start = Math.max(0, i - maxDist);
-        const end = Math.min(i + maxDist + 1, b.length);
-        for (let j = start; j < end; j++) {
-            if (!matchB[j] && a[i] === b[j]) {
-                matchA[i] = matchB[j] = true;
-                matches++;
-                break;
-            }
-        }
-    }
-    if (!matches)
-        return 0;
-    let t = 0;
-    let k = 0;
-    for (let i = 0; i < a.length; i++) {
-        if (matchA[i]) {
-            while (!matchB[k])
-                k++;
-            if (a[i] !== b[k])
-                t++;
-            k++;
-        }
-    }
-    const m = matches;
-    const jaro = (m / a.length + m / b.length + (m - t / 2) / m) / 3;
-    let l = 0;
-    while (l < 4 && a[l] === b[l])
-        l++;
-    return jaro + l * 0.1 * (1 - jaro);
-}
+// Utility helpers shared with tests
+import { jaroWinkler, sanitizeAuthorName, getScholarSamplePublications, extractPidFromDblpUrl, } from "./src/utils";
 // --- Type Definitions ---
 // Note: These are now read globally by the TS compiler, no imports needed.
 // The official, recommended DBLP SPARQL endpoint
 const DBLP_SPARQL_ENDPOINT = "https://sparql.dblp.org/sparql";
-function sanitizeAuthorName(name) {
-    return name.toLowerCase().replace(/[^a-z0-9]/g, " ").replace(/\s+/g, " ").trim();
-}
-export function getScholarAuthorName(raw) {
-    return sanitizeAuthorName(raw.split("(")[0]);
-}
-export function getScholarSamplePublications(titles, limit = 5) {
-    return titles.slice(0, limit).map(t => sanitizeAuthorName(t));
-}
-export function extractPidFromDblpUrl(url) {
-    const m = url.match(/\/pid\/([^/]+\/[^/.]+)/);
-    return m ? m[1] : "";
-}
 export function searchDblpForAuthor(name) {
     return __awaiter(this, void 0, void 0, function* () {
         var _a, _b;
