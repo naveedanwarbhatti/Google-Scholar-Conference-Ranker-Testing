@@ -1,4 +1,3 @@
-"use strict";
 // background.ts
 var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
     function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
@@ -9,10 +8,107 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
         step((generator = generator.apply(thisArg, _arguments || [])).next());
     });
 };
+// Simple Jaro-Winkler implementation (no external deps)
+export function jaroWinkler(a, b) {
+    if (a === b)
+        return 1;
+    const maxDist = Math.floor(Math.max(a.length, b.length) / 2) - 1;
+    const matchA = [];
+    const matchB = [];
+    let matches = 0;
+    for (let i = 0; i < a.length; i++) {
+        const start = Math.max(0, i - maxDist);
+        const end = Math.min(i + maxDist + 1, b.length);
+        for (let j = start; j < end; j++) {
+            if (!matchB[j] && a[i] === b[j]) {
+                matchA[i] = matchB[j] = true;
+                matches++;
+                break;
+            }
+        }
+    }
+    if (!matches)
+        return 0;
+    let t = 0;
+    let k = 0;
+    for (let i = 0; i < a.length; i++) {
+        if (matchA[i]) {
+            while (!matchB[k])
+                k++;
+            if (a[i] !== b[k])
+                t++;
+            k++;
+        }
+    }
+    const m = matches;
+    const jaro = (m / a.length + m / b.length + (m - t / 2) / m) / 3;
+    let l = 0;
+    while (l < 4 && a[l] === b[l])
+        l++;
+    return jaro + l * 0.1 * (1 - jaro);
+}
 // --- Type Definitions ---
 // Note: These are now read globally by the TS compiler, no imports needed.
 // The official, recommended DBLP SPARQL endpoint
 const DBLP_SPARQL_ENDPOINT = "https://sparql.dblp.org/sparql";
+function sanitizeAuthorName(name) {
+    return name.toLowerCase().replace(/[^a-z0-9]/g, " ").replace(/\s+/g, " ").trim();
+}
+export function getScholarAuthorName(raw) {
+    return sanitizeAuthorName(raw.split("(")[0]);
+}
+export function getScholarSamplePublications(titles, limit = 5) {
+    return titles.slice(0, limit).map(t => sanitizeAuthorName(t));
+}
+export function extractPidFromDblpUrl(url) {
+    const m = url.match(/\/pid\/([^/]+\/[^/.]+)/);
+    return m ? m[1] : "";
+}
+export function searchDblpForAuthor(name) {
+    return __awaiter(this, void 0, void 0, function* () {
+        var _a, _b;
+        const resp = yield fetch(`https://dblp.org/search/author/api?q=${encodeURIComponent(name)}&format=json`);
+        if (!resp.ok)
+            throw new Error("DBLP search failed");
+        const data = yield resp.json();
+        const hits = ((_b = (_a = data.result) === null || _a === void 0 ? void 0 : _a.hits) === null || _b === void 0 ? void 0 : _b.hit) || [];
+        return hits.map((h) => {
+            const info = h.info;
+            const url = info.url;
+            return { name: info.author, url, pid: extractPidFromDblpUrl(url) };
+        });
+    });
+}
+export function fetchPublicationsFromDblp(pid) {
+    return __awaiter(this, void 0, void 0, function* () {
+        const resp = yield fetch(`https://dblp.org/pid/${pid}.xml`);
+        if (!resp.ok)
+            return [];
+        const xml = yield resp.text();
+        return Array.from(xml.match(/<title>(.*?)<\/title>/g) || []).map(t => sanitizeAuthorName(t.replace(/<\/?title>/g, "")));
+    });
+}
+export function selectBestDblpCandidateHeuristically(name, samplePubs, candidates) {
+    return __awaiter(this, void 0, void 0, function* () {
+        const sanitizedName = sanitizeAuthorName(name);
+        let bestPid = null;
+        let bestScore = 0;
+        for (const cand of candidates) {
+            const nameScore = jaroWinkler(sanitizedName, sanitizeAuthorName(cand.name));
+            let matchCount = 0;
+            if (samplePubs.length > 0) {
+                const candPubs = yield fetchPublicationsFromDblp(cand.pid);
+                matchCount = samplePubs.filter(t => candPubs.includes(t)).length;
+            }
+            const score = matchCount * 10 + nameScore;
+            if (score > bestScore) {
+                bestScore = score;
+                bestPid = cand.pid;
+            }
+        }
+        return bestPid;
+    });
+}
 // --- SPARQL Query Execution ---
 function executeSparqlQuery(query) {
     return __awaiter(this, void 0, void 0, function* () {
@@ -35,46 +131,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         (() => __awaiter(void 0, void 0, void 0, function* () {
             var _a, _b, _c, _d, _e, _f;
             try {
-                // --- CHANGE 1: Make the search query flexible and case-insensitive ---
-                const authorSearchQuery = `
-          PREFIX dblp: <https://dblp.org/rdf/schema#>
-          SELECT ?author_uri ?author_name
-          WHERE {
-            ?author_uri a dblp:Person .
-            ?author_uri dblp:primaryFullPersonName ?author_name .
-            FILTER(CONTAINS(LCASE(?author_name), LCASE("${request.authorName}")))
-          }`;
-                const authorResults = yield executeSparqlQuery(authorSearchQuery);
-                const potentialProfiles = authorResults.results.bindings;
-                if (potentialProfiles.length === 0) {
-                    sendResponse({ status: 'error', message: 'DBLP profile not found.' });
+                const sampleTitles = getScholarSamplePublications(request.publicationTitles);
+                const candidates = yield searchDblpForAuthor(request.authorName);
+                const bestPid = yield selectBestDblpCandidateHeuristically(request.authorName, sampleTitles, candidates);
+                if (!bestPid) {
+                    sendResponse({ status: 'error', message: 'Could not verify a DBLP profile.' });
                     return;
                 }
-                // --- CHANGE 2: Restore the verification loop to find the correct profile ---
-                let verifiedAuthorUri = null;
-                for (const profile of potentialProfiles) {
-                    const dblpAuthorUri = profile.author_uri.value;
-                    const publicationsQuery = `
-            PREFIX dblp: <https://dblp.org/rdf/schema#>
-            SELECT ?title
-            WHERE {
-              <${dblpAuthorUri}> dblp:authored ?paper .
-              ?paper dblp:title ?title .
-            } LIMIT 100`; // Limit to first 100 publications for performance
-                    const publicationsResult = yield executeSparqlQuery(publicationsQuery);
-                    const dblpTitles = publicationsResult.results.bindings.map(p => p.title.value.toLowerCase().trim());
-                    const scholarTitles = request.publicationTitles.map(t => t.toLowerCase().trim());
-                    // Count how many of the top Google Scholar titles appear in the DBLP publication list
-                    const matchCount = scholarTitles.filter(scholarTitle => dblpTitles.some(dblpTitle => dblpTitle === scholarTitle)).length;
-                    if (matchCount >= 3) { // Verification threshold from your project spec
-                        verifiedAuthorUri = dblpAuthorUri;
-                        break; // Found a verified match, stop searching.
-                    }
-                }
-                if (!verifiedAuthorUri) {
-                    sendResponse({ status: 'error', message: 'Could not verify a DBLP profile. (Found profiles, but publication match failed)' });
-                    return;
-                }
+                const verifiedAuthorUri = `https://dblp.org/pid/${bestPid}`;
                 // --- Proceed with the verified URI ---
                 const totalCitationsQuery = `
           PREFIX dblp: <https://dblp.org/rdf/schema#>
