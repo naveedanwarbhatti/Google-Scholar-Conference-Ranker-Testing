@@ -1,12 +1,14 @@
 {
   "compilerOptions": {
-    "target": "esnext", // Modern browsers support ES6
-    "module": "esnext",
-    "outDir": "./dist", // Output directory for compiled JS
-    "strict": true,
+    "target": "es6",                     
+    "module": "es6",                
+    "outDir": "./dist",                  
+    "strict": true,                      
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["*.ts"] // Which files to compile
+  "include": [
+    "*.ts"                               
+  ]
 }

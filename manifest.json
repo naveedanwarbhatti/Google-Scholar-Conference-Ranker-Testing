@@ -1,9 +1,13 @@
 {
   "manifest_version": 3,
-  "name": "Google Scholar Self-Citation Checker",
-  "description": "Displays DBLP self-citation statistics on Google Scholar profiles.",
-  "version": "1.2.0",
-  "permissions": [],
+  "name": "DBLP Self-Citation Analyzer",
+  "version": "1.0",
+  "description": "Calculates and displays author self-citation rates on Google Scholar using DBLP data.",
+  "permissions": [
+    "activeTab",
+    "storage",
+    "scripting"
+  ],
   "content_scripts": [
     {
       "matches": [
@@ -61,13 +65,12 @@
         "https://scholar.google.ua/*",
         "https://scholar.google.us/*"
       ],
-      "js": ["content.js"],
-      "type": "module",
-      "run_at": "document_idle"
+      "js": ["dist/content.js"]
     }
   ],
 
   "host_permissions": [
+    "https://dblp.l3s.de/",
     "https://scholar.google.com/*",
     "https://scholar.google.co.uk/*",
     "https://scholar.google.co.jp/*",
@@ -125,6 +128,9 @@
     "https://sparql.dblp.org/*"
   ],
 
+"background": {
+    "service_worker": "dist/background.js"
+  },
 
   "icons": {
     "16":  "icons/icon16.png",
