@@ -65,7 +65,7 @@
         "https://scholar.google.ua/*",
         "https://scholar.google.us/*"
       ],
-      "js": ["dist/content.js"]
+      "js": ["build/content.js"]
     }
   ],
 
@@ -129,7 +129,7 @@
   ],
 
   "background": {
-    "service_worker": "dist/background.js",
+    "service_worker": "build/background.js",
     "type": "module"
   },
 
